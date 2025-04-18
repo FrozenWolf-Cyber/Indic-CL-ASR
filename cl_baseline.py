@@ -63,8 +63,8 @@ LANGUAGES = ['hindi','bengali','marathi','telugu','tamil','urdu','gujarati','kan
 short_form = ['hi','bn','mr','te','ta','ur','gu','kn','or','ml','pa','sa'] 
     
     
-val_performance = {i:[] for i in LANGUAGES[:2]}
-test_performance = {i:[] for i in LANGUAGES[:2]}
+val_performance = {i:[] for i in LANGUAGES}
+test_performance = {i:[] for i in LANGUAGES}
 
 @record
 def train():
@@ -207,8 +207,9 @@ def train():
                 logger.log_epoch_average()
    
         if is_main_process():
-            print("Saving weights")
-            save_model(model.module, os.path.join(config.output_dir, run_id, f"model_{lang}.pth"))
+            if config.save_weights:
+                print("Saving weights")
+                save_model(model.module, os.path.join(config.output_dir, run_id, f"model_{lang}.pth"))
             # Evaluation after training each language
             
             print("Validation eval")
