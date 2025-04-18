@@ -30,7 +30,7 @@ export LOGLEVEL=INFO
 conda init bash
 source /scratch/gokuladethya.cse.nitt/miniconda3/etc/profile.d/conda.sh
 
-conda activate fyp
+conda activate indiaai
 export WANDB_API_KEY=283c41dda88b658ba85c2d8ee7d37230f3341d8c
 # Diagnostics
 srun python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
