@@ -1,0 +1,7 @@
+checkpoints
+*.pt
+*.pth
+*.tar
+__pycache__
+wandb
+output/*
