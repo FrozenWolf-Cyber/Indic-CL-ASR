@@ -1,11 +1,11 @@
 notes: "CL naive baseline"
 entity: "frozenwolf"
 device: cuda
-batch_size: 48
+batch_size: 56
 # batch_size: 16
 num_workers: 0
 learning_rate: 0.0001
-epochs: 10
+epochs: 5
 distributed: true
 mixed_precision: false
 save_weights: false #===============================
