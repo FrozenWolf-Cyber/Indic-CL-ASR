@@ -7,7 +7,7 @@
 #SBATCH --output=/scratch/gokuladethya.cse.nitt/indiaai/slurm-loop-%j.out
 #SBATCH --time=6-00:00:00
 
-WATCH_DIR="/scratch/gokuladethya.cse.nitt/indiaai/jobs"
+WATCH_DIR="/scratch/gokuladethya.cse.nitt/indiaai/jobs2"
 PROCESSED_DIR="/scratch/gokuladethya.cse.nitt/indiaai/processed_jobs"
 
 echo "SLURM_JOB_NODELIST: $SLURM_JOB_NODELIST"
