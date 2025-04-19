@@ -264,13 +264,61 @@ def freeze_layer(model, num_layers):
         
 def save_model(model, path):
     unfrozen_state_dict = {
-        name: param
+        name: param.data
         for name, param in model.named_parameters()
         if param.requires_grad
     }
     torch.save(unfrozen_state_dict, path)
     
+def get_params(model):
+    unfrozen_state_dict = {}
+    
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            unfrozen_state_dict[name] = param.data
+        
+    # for name, param in unfrozen_state_dict.items():
+    #     print(name, param)
+    return unfrozen_state_dict  
+  
+def get_params_clone(model):
+    unfrozen_state_dict = {}
+    
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            unfrozen_state_dict[name] = param.data.clone()
+        
+    # for name, param in unfrozen_state_dict.items():
+    #     print(name, param)
+    return unfrozen_state_dict
+  
+def get_zero_params(model, device):
+    zero_state_dict = {}
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            zero_state_dict[name] = torch.zeros_like(param.data).to(device)
+
+            
+    return zero_state_dict
     # model.load_state_dict(torch.load(path), strict=False)
+    
+def get_grads(model):
+    unfrozen_state_dict = {}
+    
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            unfrozen_state_dict[name] = param.grad
+        
+    # for name, param in unfrozen_state_dict.items():
+    #     print(name, param)
+    return unfrozen_state_dict
+
+def set_grads(model, grad_dict):
+    for name, param in model.named_parameters():
+        if name in grad_dict:
+            param.grad = grad_dict[name]
+        else:
+            param.grad = None
 
 import gc
 def check_garbage():

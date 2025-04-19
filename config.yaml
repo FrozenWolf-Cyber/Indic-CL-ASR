@@ -2,11 +2,12 @@ notes: "CL naive baseline"
 entity: "frozenwolf"
 device: cuda
 batch_size: 32
+# batch_size: 16
 num_workers: 0
 learning_rate: 0.0001
 epochs: 10
 distributed: true
-mixed_precision: true
+mixed_precision: false
 save_weights: false #===============================
 
 # output_dir: "output"
@@ -21,11 +22,12 @@ dataset:
 
   # path: "/home/frozenwolf/Desktop/indiaai_subset/"
   # annotation_path: "/home/frozenwolf/Desktop/dataset.pkl"
-  # path: "../"
 
 cl_config:
+  e_lambda: 10
   evaluate_every_n_epochs: 10
   knowledge_distillation: 0.1
+  knowledge_distillation_ctx: 0.3  ### 0.3 default, 1 means, 0 means no ctx
 
 cl_kmean:
   reset_lora: true

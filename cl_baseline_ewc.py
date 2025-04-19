@@ -18,7 +18,7 @@ from utils import gpu_profile, check_garbage
 from utils import Logger, override_config_with_args, insert_perf, compute_bwt_new, save_model, log_bwt_curves_wandb, compute_wer, run_eval, freeze_layer  # Make sure utils is adapted
 from torch.distributed.elastic.multiprocessing.errors import record
 from torch.amp import GradScaler, autocast
-
+from utils import get_params, get_zero_params, get_grads, get_params_clone, set_grads
 
 def seed_everything(seed=42):
     import random
@@ -65,6 +65,20 @@ short_form = ['hi','bn','mr','te','ta','ur','gu','kn','or','ml','pa','sa']
     
 val_performance = {i:[] for i in LANGUAGES}
 test_performance = {i:[] for i in LANGUAGES}
+
+def get_penalty_grads(config, fish, curr_checkpoint, checkpoint):
+    result = {}
+    penalty_avg = 0
+    n = 0
+    # nan_count_total = 0
+    for key in curr_checkpoint.keys():
+        result[key] = config.cl_config.ewc_gamma * 2 * fish[key] * (curr_checkpoint[key]- checkpoint[key])
+        # nan_count_total += torch.isnan(result[key]).sum()
+        penalty_avg += torch.mean(torch.abs(result[key]))
+        n+=1
+        
+    # print("nan_count_total", nan_count_total.item())
+    return result, penalty_avg.item()/n
 
 @record
 def train():
@@ -136,7 +150,9 @@ def train():
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
 
-
+    checkpoint = None
+    
+    main_fish = None
     for lang_idx, (lang, short_form_lang) in enumerate(zip(LANGUAGES, short_form)):
 
         torch.distributed.barrier()
@@ -145,9 +161,7 @@ def train():
 
         audio_files = train_set[lang]['audio']
         
-        
-        
-        
+
         transcripts_dict = train_set[lang]['transcript']
         transcripts = [transcripts_dict[os.path.basename(path)] for path in audio_files]
         durations = train_set[lang]['duration']
@@ -170,14 +184,18 @@ def train():
                                                         language_id = short_form_lang,
                                                         sampler="ddp" if config.distributed else None)
 
-        for epoch in range(config.epochs):
+        fish = get_zero_params(model.module, device=device)
+        for epoch in range(config.epochs + 1): ### last epoch to calculate ewc
             torch.distributed.barrier()
             model.train()
             if lang_idx > -1:
                 if config.mixed_precision:
                     scaler = GradScaler()  # for AMP
-
+                    
+                total_ds = 0
+                
                 for batch in tqdm(dataloader, desc=f"[Rank {rank}] Lang: {lang} Epoch: {epoch + 1}"):
+                    total_ds += len(batch[0])
                     # print("before, batch",torch.cuda.memory_summary())
                     batch = move_to_device(batch, device)
                     optimizer.zero_grad()
@@ -185,18 +203,38 @@ def train():
                     with autocast(device_type="cuda", enabled=config.mixed_precision):
                         loss, monitor = model.module.training_step(batch, [short_form_lang]*len(batch[0]))
                     # print("loss calclated",torch.cuda.memory_summary())
+                    
+                    if (epoch < config.epochs) and (checkpoint is not None):
+                        penalty, penalty_avg  =  get_penalty_grads(config, main_fish, get_params(model.module), checkpoint)
+                        monitor['ewc_penalty'] = penalty_avg
+                        set_grads(model.module,penalty)
+                    
                     if config.mixed_precision:
                         scaler.scale(loss).backward()
                         # print("after loss backward", torch.cuda.memory_summary())
-                        scaler.step(optimizer)
-                        scaler.update()
+                        if epoch < config.epochs:
+                            scaler.step(optimizer)
+                            scaler.update()
                     else:
                         loss.backward()
-                        optimizer.step()
-                    # print("after step",torch.cuda.memory_summary())
-                    # print("Before deleting")
-                    # check_garbage()
-                    if is_main_process():
+                        if epoch < config.epochs:
+                            optimizer.step()
+                    
+                   
+                    if epoch == config.epochs:
+                        curr_grads = get_grads(model.module)
+                        exp_cond_prob = torch.mean(loss.detach().clone()) 
+                        for key in list(curr_grads.keys()):
+                            # if curr_grads[key] is None:
+                            #     del curr_grads[key]
+                            #     del fish[key]
+                            #     print(f"Key {key} deleted from fish and curr_grads")
+                            #     continue
+                            
+                            fish[key] += exp_cond_prob * curr_grads[key]  ** 2
+                         
+                      
+                    if is_main_process() and epoch < config.epochs:
                         for key, value in monitor.items():
                             logger.log({f"train/{key}_{lang}": value, "epoch": epoch, "lang": lang_idx})
                     del loss, batch, monitor
@@ -204,40 +242,60 @@ def train():
                     torch.cuda.empty_cache()
                     # print("After deleting")
                     # check_garbage()
-                logger.log_epoch_average()
-   
-        if is_main_process():
-            if config.save_weights:
-                print("Saving weights")
-                save_model(model.module, os.path.join(config.output_dir, run_id, f"model_{lang}.pth"))
-            # Evaluation after training each language
-            
-            print("Validation eval")
-            perf_dict = {}
-            for prev_lang in tqdm(LANGUAGES[:lang_idx+1]):
-                perf_dict[prev_lang] = run_eval(logger, "val", model.module, val_set, noisy_val_set, config, epoch, lang_idx, prev_lang, short_form_lang)
-            insert_perf(val_performance, perf_dict)
-            for modes in ["ctc", "rnnt"]:
-                print(f"Computing {modes} curves")
-                print("val_performance", val_performance)
-                bwt_curves = compute_bwt_new(val_performance, f"{modes}_avg_wer")
-                print("bwt_curves", bwt_curves)
-                log_bwt_curves_wandb(bwt_curves)
-
-            print("Test eval")
-            perf_dict = {}
-            for prev_lang in tqdm(LANGUAGES[:lang_idx+1]):
-                perf_dict[prev_lang] = run_eval(logger, "test", model.module, test_set, noisy_test_set, config, epoch, lang_idx, prev_lang, short_form_lang)
-            insert_perf(test_performance, perf_dict)
-            
-            for modes in ["ctc", "rnnt"]:
-                print(f"Computing {modes} curves")
-                print("test_performance", test_performance)
-                bwt_curves = compute_bwt_new(test_performance, f"{modes}_avg_wer")
-                print("bwt_curves", bwt_curves)
-                log_bwt_curves_wandb(bwt_curves)
+                
+                if epoch == config.epochs:
+                    for key in fish:
+                        fish[key] /= (total_ds)
+                    total_ds = 0
                         
-            logger.reset()
+                    if main_fish is None:
+                        main_fish = fish
+                    else:
+                        for key in fish:
+                            if main_fish[key] is None:
+                                main_fish[key] = fish[key]
+                            else:
+                                main_fish[key] *= config.cl_config.e_lambda
+                                main_fish[key] += fish[key]
+                                
+                    checkpoint = get_params_clone(model.module)
+                    
+                if epoch < config.epochs:
+                    logger.log_epoch_average()
+   
+            if is_main_process() and epoch == config.epochs-1:
+                if config.save_weights:
+                    print("Saving weights")
+                    save_model(model.module, os.path.join(config.output_dir, run_id, f"model_{lang}.pth"))
+                # Evaluation after training each language
+
+                print("Validation eval")
+                perf_dict = {}
+                for prev_lang in tqdm(LANGUAGES[:lang_idx+1]):
+                    perf_dict[prev_lang] = run_eval(logger, "val", model.module, val_set, noisy_val_set, config, epoch, lang_idx, prev_lang, short_form_lang)
+                insert_perf(val_performance, perf_dict)
+                for modes in ["ctc", "rnnt"]:
+                    print(f"Computing {modes} curves")
+                    print("val_performance", val_performance)
+                    bwt_curves = compute_bwt_new(val_performance, f"{modes}_avg_wer")
+                    print("bwt_curves", bwt_curves)
+                    log_bwt_curves_wandb(bwt_curves)
+
+                print("Test eval")
+                perf_dict = {}
+                for prev_lang in tqdm(LANGUAGES[:lang_idx+1]):
+                    perf_dict[prev_lang] = run_eval(logger, "test", model.module, test_set, noisy_test_set, config, epoch, lang_idx, prev_lang, short_form_lang)
+                insert_perf(test_performance, perf_dict)
+
+                for modes in ["ctc", "rnnt"]:
+                    print(f"Computing {modes} curves")
+                    print("test_performance", test_performance)
+                    bwt_curves = compute_bwt_new(test_performance, f"{modes}_avg_wer")
+                    print("bwt_curves", bwt_curves)
+                    log_bwt_curves_wandb(bwt_curves)
+
+                logger.reset()
+
          
                 
 

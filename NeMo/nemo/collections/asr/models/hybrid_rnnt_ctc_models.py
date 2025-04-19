@@ -856,7 +856,7 @@ class EncDecHybridRNNTCTCModel(EncDecRNNTModel, ASRBPEMixin, InterCTCMixin):
         logging.info(f"Changed decoding strategy to \n{OmegaConf.to_yaml(self.cfg.aux_ctc.decoding)}")
 
     # PTL-specific methods
-    def training_step(self, batch, lang_ids):
+    def training_step(self, batch, lang_ids, return_probs=False):
         # Reset access registry
         if AccessMixin.is_access_enabled(self.model_guid):
             AccessMixin.reset_registry(self)
@@ -890,6 +890,7 @@ class EncDecHybridRNNTCTCModel(EncDecRNNTModel, ASRBPEMixin, InterCTCMixin):
         if not self.joint.fuse_loss_wer:
             # Compute full joint and loss
             joint = self.joint(encoder_outputs=encoded, decoder_outputs=decoder, language_ids=language_ids) #CTEMO
+            print("RNNT INPUTS", joint.shape, transcript.shape, encoded_len, target_length)
             loss_value = self.loss(
                 log_probs=joint, targets=transcript, input_lengths=encoded_len, target_lengths=target_length
             )
@@ -913,6 +914,7 @@ class EncDecHybridRNNTCTCModel(EncDecRNNTModel, ASRBPEMixin, InterCTCMixin):
 
         else:  # If fused Joint-Loss-WER is used
             # Fused joint step
+       
             loss_value, wer, _, _ = self.joint(
                 encoder_outputs=encoded,
                 decoder_outputs=decoder,
@@ -922,7 +924,6 @@ class EncDecHybridRNNTCTCModel(EncDecRNNTModel, ASRBPEMixin, InterCTCMixin):
                 compute_wer=compute_wer,
                 language_ids=language_ids
             )
-            
             monitor['training_batch_wer'] = wer
 
             # Add auxiliary losses, if registered
@@ -959,7 +960,11 @@ class EncDecHybridRNNTCTCModel(EncDecRNNTModel, ASRBPEMixin, InterCTCMixin):
                 self.ctc_wer.reset()
                 monitor['training_batch_wer_ctc'] = ctc_wer
                 # tensorboard_logs.update({'training_batch_wer_ctc': ctc_wer})
-                del ctc_wer, ctc_loss, log_probs, _
+                del ctc_wer, ctc_loss, _
+                if not return_probs:
+                    del log_probs
+                else:
+                    log_probs = log_probs
 
         # note that we want to apply interctc independent of whether main ctc
         # loss is used or not (to allow rnnt + interctc training).
@@ -988,6 +993,9 @@ class EncDecHybridRNNTCTCModel(EncDecRNNTModel, ASRBPEMixin, InterCTCMixin):
         del batch
         gc.collect(); gc.collect()
         torch.cuda.empty_cache()
+        
+        if return_probs:
+            return loss_value, monitor, log_probs
         return loss_value, monitor
 
 

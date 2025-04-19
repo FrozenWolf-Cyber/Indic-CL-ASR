@@ -1368,6 +1368,8 @@ class RNNTJoint(rnnt_abstract.AbstractRNNTJoint, Exportable, AdapterModuleMixin)
 
         # to change, requires running ``model.temperature = T`` explicitly
         self.temperature = 1.0
+        self.store_sub_enc = False
+        self.detach_sub_enc = True
 
     @typecheck()
     def forward(
@@ -1416,8 +1418,9 @@ class RNNTJoint(rnnt_abstract.AbstractRNNTJoint, Exportable, AdapterModuleMixin)
             wers, wer_nums, wer_denoms = [], [], []
             target_lengths = []
             batch_size = int(encoder_outputs.size(0))  # actual batch size
-
+            sub_enc_list = []
             # Iterate over batch using fused_batch_size steps
+            
             for batch_idx in range(0, batch_size, self._fused_batch_size):
                 begin = batch_idx
                 end = min(begin + self._fused_batch_size, batch_size)
@@ -1469,8 +1472,14 @@ class RNNTJoint(rnnt_abstract.AbstractRNNTJoint, Exportable, AdapterModuleMixin)
 
                     # override loss reduction to sum
                     self.loss.reduction = None
-
                     # compute and preserve loss
+                    if self.store_sub_enc:
+                        if self.detach_sub_enc:
+                            if sub_enc.requires_grad:
+                                sub_enc = sub_enc.detach()
+                            sub_enc_list.append(sub_enc)
+                        else:
+                            sub_enc_list.append(sub_enc)
                     loss_batch = self.loss(
                         log_probs=sub_joint,
                         targets=sub_transcripts,
@@ -1532,6 +1541,8 @@ class RNNTJoint(rnnt_abstract.AbstractRNNTJoint, Exportable, AdapterModuleMixin)
                 wer_num = None
                 wer_denom = None
 
+            if self.store_sub_enc:
+                self.store_list = sub_enc_list
             return losses, wer, wer_num, wer_denom
 
     def project_encoder(self, encoder_output: torch.Tensor) -> torch.Tensor:

@@ -76,7 +76,8 @@ def train():
     config = OmegaConf.load("config.yaml")
     config = override_config_with_args(config)
 
-
+    kd_ctx = config.cl_config.knowledge_distillation_ctx
+    
     dataset = pickle.load(open(config.dataset.annotation_path, "rb"))
     
     for dict_name, dict in dataset.items():
@@ -138,16 +139,19 @@ def train():
 
 
     for lang_idx, (lang, short_form_lang) in enumerate(zip(LANGUAGES, short_form)):
+        if lang_idx > -1:
+            if config.save_weights:
+                prev_path = os.path.join(config.output_dir, run_id, f"model_{LANGUAGES[lang_idx-1]}.pth")
+            else:
+                prev_path = os.path.join(config.output_dir, run_id, f"model_prev.pth")
+                
+            curr_save_path = os.path.join(config.output_dir, run_id, f"model_curr.pth")
 
         torch.distributed.barrier()
         if is_main_process():
             print(f"\n============= Training on language: {lang} =============")
 
         audio_files = train_set[lang]['audio']
-        
-        
-        
-        
         transcripts_dict = train_set[lang]['transcript']
         transcripts = [transcripts_dict[os.path.basename(path)] for path in audio_files]
         durations = train_set[lang]['duration']
@@ -183,7 +187,59 @@ def train():
                     optimizer.zero_grad()
                     # print("after batch",torch.cuda.memory_summary())
                     with autocast(device_type="cuda", enabled=config.mixed_precision):
-                        loss, monitor = model.module.training_step(batch, [short_form_lang]*len(batch[0]))
+                        with torch.no_grad():
+                            if lang_idx > -1:
+                                if is_main_process():
+                                    save_model(model.module, curr_save_path)
+                                    
+                                torch.distributed.barrier()
+                                model.module.load_state_dict(torch.load(prev_path, map_location=device), strict=False)
+                                torch.distributed.barrier()
+                                model.module.joint.store_sub_enc = True
+                                model.module.joint.detach_sub_enc = True
+                                loss, monitor, prob_ = model.module.training_step(batch, [short_form_lang]*len(batch[0]), return_probs=True) 
+                                store_list = model.module.joint.store_list
+                                del loss, monitor
+                                torch.cuda.empty_cache()
+                                gc.collect()
+                                torch.distributed.barrier()
+                                model.module.load_state_dict(torch.load(curr_save_path, map_location=device), strict=False)
+                                torch.distributed.barrier()
+                         
+                        model.module.joint.store_sub_enc = True
+                        model.module.joint.detach_sub_enc = False
+                        loss, monitor, prob = model.module.training_step(batch, [short_form_lang]*len(batch[0]), return_probs=True) 
+                        pred_store_list = model.module.joint.store_list
+
+                        if lang_idx > -1:
+                            ctc_kd_loss = torch.nn.functional.kl_div(
+                                prob,  # input: log probabilities from student
+                                prob_.exp(),  # target: probabilities from teacher
+                                reduction='batchmean'
+                            )
+
+                            rnnt_kd_loss_ = 0
+                            assert len(store_list) == len(pred_store_list)
+                            
+                            for i,j in zip(store_list, pred_store_list):
+                                i = i.to(device)
+                                rnnt_kd_loss_ += torch.nn.functional.kl_div(
+                                j,  # input: log probabilities from student
+                                i.exp(),  # target: probabilities from teacher
+                                reduction='batchmean'
+                            )
+                                
+                            rnnt_kd_loss_/= len(store_list)
+                            monitor['rnnt_kd_loss'] = rnnt_kd_loss_.item()
+                            monitor['ctc_kd_loss'] = ctc_kd_loss.item()
+                            monitor['kd_loss'] = (1 - kd_ctx) * monitor['rnnt_kd_loss'] + kd_ctx * monitor['ctc_kd_loss']
+                            
+                            loss = loss * (1 - config.cl_config.knowledge_distillation)\
+                            + config.cl_config.knowledge_distillation * \
+                                ((1 - kd_ctx) * rnnt_kd_loss_ + kd_ctx * ctc_kd_loss)
+                            
+
+                        
                     # print("loss calclated",torch.cuda.memory_summary())
                     if config.mixed_precision:
                         scaler.scale(loss).backward()
@@ -199,12 +255,18 @@ def train():
                     if is_main_process():
                         for key, value in monitor.items():
                             logger.log({f"train/{key}_{lang}": value, "epoch": epoch, "lang": lang_idx})
+                            
+                    if lang_idx > -1:
+                        del ctc_kd_loss, rnnt_kd_loss_, prob_, store_list, pred_store_list, i, j
                     del loss, batch, monitor
                     gc.collect()
                     torch.cuda.empty_cache()
                     # print("After deleting")
                     # check_garbage()
                 logger.log_epoch_average()
+                
+        model.module.joint.store_sub_enc = False
+        model.module.joint.detach_sub_enc = True
    
         if is_main_process():
             if config.save_weights:
@@ -238,6 +300,9 @@ def train():
                 log_bwt_curves_wandb(bwt_curves)
                         
             logger.reset()
+            
+            if not config.save_weights:
+                save_model(model.module, os.path.join(config.output_dir, run_id, f"model_prev.pth"))
          
                 
 
