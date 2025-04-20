@@ -933,8 +933,7 @@ class EncDecHybridRNNTCTCModel(EncDecRNNTModel, ASRBPEMixin, InterCTCMixin):
 
         if self.ctc_loss_weight > 0:
             log_probs = self.ctc_decoder(encoder_output=encoded, language_ids=language_ids)
-            if self.ctc_decoder.return_logits_:
-                log_probs, ctc_logits = log_probs
+
             ctc_loss = self.ctc_loss(
                 log_probs=log_probs, targets=transcript, input_lengths=encoded_len, target_lengths=transcript_len
             )
@@ -998,6 +997,8 @@ class EncDecHybridRNNTCTCModel(EncDecRNNTModel, ASRBPEMixin, InterCTCMixin):
         
         if return_probs:
             return loss_value, monitor, log_probs
+        
+        
         return loss_value, monitor
 
 

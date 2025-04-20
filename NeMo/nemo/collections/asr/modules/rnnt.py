@@ -1370,6 +1370,7 @@ class RNNTJoint(rnnt_abstract.AbstractRNNTJoint, Exportable, AdapterModuleMixin)
         self.temperature = 1.0
         self.store_sub_enc = False
         self.detach_sub_enc = True
+        self.store_sub_logits = False
 
     @typecheck()
     def forward(
@@ -1458,6 +1459,9 @@ class RNNTJoint(rnnt_abstract.AbstractRNNTJoint, Exportable, AdapterModuleMixin)
                         sub_joint = self.joint(sub_enc, sub_dec, language_ids=language_ids[begin:end]) #CTEMO
                     else:
                         sub_joint = self.joint(sub_enc, sub_dec) #CTEMO
+                        
+                    if self.store_sub_logits:
+                        sub_logits = self.temp_logits
 
                     del sub_dec
 
@@ -1476,11 +1480,21 @@ class RNNTJoint(rnnt_abstract.AbstractRNNTJoint, Exportable, AdapterModuleMixin)
                     if self.store_sub_enc:
                         if self.detach_sub_enc:
                             if sub_enc.requires_grad:
-                                sub_enc_list.append(sub_joint.detach())
+                                sub_enc_list.append(sub_joint.detach().clone())
                             else:
-                                sub_enc_list.append(sub_joint)
+                                sub_enc_list.append(sub_joint.clone())
                         else:
-                            sub_enc_list.append(sub_joint)
+                            sub_enc_list.append(sub_joint.clone())
+                            
+                    if self.store_sub_logits:
+                        if self.detach_sub_enc:
+                            if sub_logits.requires_grad:
+                                sub_enc_list.append(sub_logits.detach().clone())
+                            else:
+                                sub_enc_list.append(sub_logits.clone())
+                        else:
+                            sub_enc_list.append(sub_logits.clone())
+                            
                     loss_batch = self.loss(
                         log_probs=sub_joint,
                         targets=sub_transcripts,
@@ -1542,7 +1556,7 @@ class RNNTJoint(rnnt_abstract.AbstractRNNTJoint, Exportable, AdapterModuleMixin)
                 wer_num = None
                 wer_denom = None
 
-            if self.store_sub_enc:
+            if self.store_sub_enc or self.store_sub_logits:
                 self.store_list = sub_enc_list
             return losses, wer, wer_num, wer_denom
 
@@ -1632,6 +1646,8 @@ class RNNTJoint(rnnt_abstract.AbstractRNNTJoint, Exportable, AdapterModuleMixin)
             torch.cuda.empty_cache()
 
         # If log_softmax is automatic
+        if self.store_sub_logits:
+            self.temp_logits = res.clone()
         if self.log_softmax is None:
             if not res.is_cuda:  # Use log softmax only if on CPU
                 if self.temperature != 1.0:
@@ -1644,6 +1660,7 @@ class RNNTJoint(rnnt_abstract.AbstractRNNTJoint, Exportable, AdapterModuleMixin)
                     res = (res / self.temperature).log_softmax(dim=-1)
                 else:
                     res = res.log_softmax(dim=-1)
+
 
         return res
 

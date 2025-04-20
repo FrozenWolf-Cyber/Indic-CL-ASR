@@ -66,19 +66,14 @@ short_form = ['hi','bn','mr','te','ta','ur','gu','kn','or','ml','pa','sa']
 val_performance = {i:[] for i in LANGUAGES}
 test_performance = {i:[] for i in LANGUAGES}
 
-def get_penalty_grads(config, fish, curr_checkpoint, checkpoint):
-    result = {}
-    penalty_avg = 0
-    n = 0
-    # nan_count_total = 0
-    for key in curr_checkpoint.keys():
-        result[key] = config.cl_config.e_lambda * 2 * fish[key] * (curr_checkpoint[key]- checkpoint[key])
-        # nan_count_total += torch.isnan(result[key]).sum()
-        penalty_avg += torch.mean(torch.abs(result[key]))
-        n+=1
-        
-    # print("nan_count_total", nan_count_total.item())
-    return result, penalty_avg.item()/n
+
+def penalty(model, main_importance, prev_params):
+     loss = 0
+     for n, p in model.named_parameters():
+         if p.requires_grad:
+             loss += torch.sum(main_importance[n] * (p - prev_params[n]) ** 2)
+     return loss
+
 
 @record
 def train():
@@ -167,7 +162,7 @@ def train():
 
     checkpoint = None
     
-    main_fish = None
+    main_importance = None
     for lang_idx, (lang, short_form_lang) in enumerate(zip(LANGUAGES, short_form)):
 
         torch.distributed.barrier()
@@ -199,7 +194,7 @@ def train():
                                                         language_id = short_form_lang,
                                                         sampler="ddp" if config.distributed else None)
 
-        fish = get_zero_params(model.module, device=device)
+        importance = get_zero_params(model.module, device=device)
         for epoch in range(config.epochs + 1): ### last epoch to calculate ewc
             torch.distributed.barrier()
             model.train()
@@ -207,51 +202,70 @@ def train():
                 if config.mixed_precision:
                     scaler = GradScaler()  # for AMP
                     
-                total_ds = 0
+                
+                if epoch == config.epochs:
+                    model.joint.store_sub_enc = False
+                    model.joint.store_sub_logits = True
+                    model.ctc_decoder.return_logits_ = True
+                    model.joint.detach_sub_enc = False
+                else:
+                    model.joint.store_sub_enc = False
+                    model.joint.store_sub_logits = False
+                    model.ctc_decoder.return_logits_ = False
+                    model.joint.detach_sub_enc = False
                 
                 for batch in tqdm(dataloader, desc=f"[Rank {rank}] Lang: {lang} Epoch: {epoch + 1}"):
-                    total_ds += len(batch[0])
                     # print("before, batch",torch.cuda.memory_summary())
                     batch = move_to_device(batch, device)
                     optimizer.zero_grad()
                     # print("after batch",torch.cuda.memory_summary())
                     with autocast(device_type="cuda", enabled=config.mixed_precision):
                         loss, monitor = model.module.training_step(batch, [short_form_lang]*len(batch[0]))
+                        mass_loss = penalty(model.module, main_importance, checkpoint)
+                        monitor['mass_loss'] = mass_loss.item()
+                        loss = loss + mass_loss*config.cl_config.mas_lambda
                     # print("loss calclated",torch.cuda.memory_summary())
                     
-                    if (epoch < config.epochs) and (checkpoint is not None):
-                        penalty, penalty_avg  =  get_penalty_grads(config, main_fish, get_params(model.module), checkpoint)
-                        monitor['ewc_penalty'] = penalty_avg
-                        set_grads(model.module,penalty)
-                    
-                    if config.mixed_precision:
-                        scaler.scale(loss).backward()
-                        # print("after loss backward", torch.cuda.memory_summary())
-                        if epoch < config.epochs:
-                            scaler.step(optimizer)
-                            scaler.update()
+                    if (epoch < config.epochs):
+                        # penalty, penalty_avg  =  get_penalty_grads(config, main_fish, get_params(model.module), checkpoint)
+                        # monitor['ewc_penalty'] = penalty_avg
+                        # set_grads(model.module,penalty)
+                        
+                        if config.mixed_precision:
+                            scaler.scale(loss).backward()
+                            # print("after loss backward", torch.cuda.memory_summary())
+                            if epoch < config.epochs:
+                                scaler.step(optimizer)
+                                scaler.update()
+                        else:
+                            loss.backward()
+                            if epoch < config.epochs:
+                                optimizer.step()
+                        
+                        if is_main_process():
+                            for key, value in monitor.items():
+                                logger.log({f"train/{key}_{lang}": value, "epoch": epoch, "lang": lang_idx})
+                                
                     else:
+                        decoder_logits = (model.ctc_decoder.decoder_logits.flatten(end_dim=-2) ** 2).sum(dim=-1).mean()
+                        
+                        rnn_logits = 0
+                        for i in model.joint.store_list:
+                            rnn_logits += (i.flatten(end_dim=-2) ** 2).sum(dim=-1).mean()
+                        rnn_logits /= len(model.joint.store_list)
+                        loss = (rnn_logits*(1-config.cl_config.mas_ctx) + decoder_logits*config.cl_config.mas_ctx)
                         loss.backward()
-                        if epoch < config.epochs:
-                            optimizer.step()
-                    
-                   
-                    if epoch == config.epochs:
-                        curr_grads = get_grads(model.module)
-                        exp_cond_prob = torch.mean(loss.detach().clone()) 
-                        for key in list(curr_grads.keys()):
-                            # if curr_grads[key] is None:
-                            #     del curr_grads[key]
-                            #     del fish[key]
-                            #     print(f"Key {key} deleted from fish and curr_grads")
-                            #     continue
-                            
-                            fish[key] += exp_cond_prob * curr_grads[key]  ** 2
+                        
+                        for n, p in model.module.named_parameters():
+                            if p.requires_grad:
+                                if p.grad is not None:
+                                    importance[n] += p.grad.abs().detach()
+                                    
+                                    
+                        del decoder_logits, rnn_logits
                          
                       
-                    if is_main_process() and epoch < config.epochs:
-                        for key, value in monitor.items():
-                            logger.log({f"train/{key}_{lang}": value, "epoch": epoch, "lang": lang_idx})
+                
                     del loss, batch, monitor
                     gc.collect()
                     torch.cuda.empty_cache()
@@ -259,20 +273,10 @@ def train():
                     # check_garbage()
                 
                 if epoch == config.epochs:
-                    for key in fish:
-                        fish[key] /= (total_ds)
-                    total_ds = 0
+                    for k in importance.keys():
+                        importance[k] /= len(dataloader)
                         
-                    if main_fish is None:
-                        main_fish = fish
-                    else:
-                        for key in fish:
-                            if main_fish[key] is None:
-                                main_fish[key] = fish[key]
-                            else:
-                                main_fish[key] *= config.cl_config.e_gamma
-                                main_fish[key] += fish[key]
-                                
+                    main_importance = importance         
                     checkpoint = get_params_clone(model.module)
                     
                 if epoch < config.epochs:
