@@ -77,6 +77,7 @@ def penalty(model, main_importance, prev_params):
 
 @record
 def train():
+    dataloader =   None
     setup_distributed()
     rank = dist.get_rank()
     local_rank = int(os.environ["LOCAL_RANK"])
@@ -188,6 +189,11 @@ def train():
         transcribe_cfg._internal = InternalTranscribeConfig()
         transcribe_cfg._internal.temp_dir = tempfile.mkdtemp()
 
+        print("Creating dataloader")
+        del dataloader
+        gc.collect()
+        torch.cuda.empty_cache()
+        
         print("Creating dataloader")
         dataloader = model.module._transcribe_input_processing(audio_files, transcribe_cfg, transcripts, durations=durations,
                                                         shuffle=False if config.distributed else True,
