@@ -857,65 +857,27 @@ class EncDecHybridRNNTCTCModel(EncDecRNNTModel, ASRBPEMixin, InterCTCMixin):
 
     # PTL-specific methods
     def training_step(self, batch, lang_ids, return_probs=False):
-        # Reset access registry
-        if AccessMixin.is_access_enabled(self.model_guid):
-            AccessMixin.reset_registry(self)
+        signal, signal_len, transcript, transcript_len = batch
+        del batch
+        gc.collect(); gc.collect()
+        torch.cuda.empty_cache()
+        language_ids = lang_ids
 
-        if self.is_interctc_enabled():
-            AccessMixin.set_access_enabled(access_enabled=True, guid=self.model_guid)
-
-        if "multisoftmax" not in self.cfg.decoder: #CTEMO
-            signal, signal_len, transcript, transcript_len = batch
-            language_ids = None
-        else:
-            # signal, signal_len, transcript, transcript_len, sample_ids, language_ids = batch
-            signal, signal_len, transcript, transcript_len = batch
-            language_ids = lang_ids
-
-        # forward() only performs encoder forward
-        if isinstance(batch, DALIOutputs) and batch.has_processed_signal:
-            encoded, encoded_len = self.forward(processed_signal=signal, processed_signal_length=signal_len)
-        else:
-            encoded, encoded_len = self.forward(input_signal=signal, input_signal_length=signal_len)
+        encoded, encoded_len = self.forward(input_signal=signal, input_signal_length=signal_len)
         del signal
-
+        gc.collect(); gc.collect()
+        torch.cuda.empty_cache()
         # During training, loss must be computed, so decoder forward is necessary
         decoder, target_length, states = self.decoder(targets=transcript, target_length=transcript_len)
-
-
+        del target_length, states, signal_len
+        gc.collect(); gc.collect()
+        torch.cuda.empty_cache()
         compute_wer = True
 
         # If fused Joint-Loss-WER is not used
         monitor = {}
-        if not self.joint.fuse_loss_wer:
-            # Compute full joint and loss
-            joint = self.joint(encoder_outputs=encoded, decoder_outputs=decoder, language_ids=language_ids) #CTEMO
-            print("RNNT INPUTS", joint.shape, transcript.shape, encoded_len, target_length)
-            loss_value = self.loss(
-                log_probs=joint, targets=transcript, input_lengths=encoded_len, target_lengths=target_length
-            )
 
-            # Add auxiliary losses, if registered
-            loss_value = self.add_auxiliary_losses(loss_value)
-
-            if compute_wer:
-                self.wer.update(
-                    predictions=encoded,
-                    predictions_lengths=encoded_len,
-                    targets=transcript,
-                    targets_lengths=transcript_len,
-                )
-                _, scores, words = self.wer.compute()
-                self.wer.reset()
-                monitor['training_batch_wer'] = scores.float() / words
-                
-            del joint, scores, words, _
-                # tensorboard_logs.update({'training_batch_wer': scores.float() / words})
-
-        else:  # If fused Joint-Loss-WER is used
-            # Fused joint step
-       
-            loss_value, wer, _, _ = self.joint(
+        loss_value, wer, _, _ = self.joint(
                 encoder_outputs=encoded,
                 decoder_outputs=decoder,
                 encoder_lengths=encoded_len,
@@ -924,74 +886,40 @@ class EncDecHybridRNNTCTCModel(EncDecRNNTModel, ASRBPEMixin, InterCTCMixin):
                 compute_wer=compute_wer,
                 language_ids=language_ids
             )
-            monitor['training_batch_wer'] = wer
+        monitor['training_batch_wer'] = wer
+        del wer, _, decoder
+        gc.collect(); gc.collect()
+        torch.cuda.empty_cache()
 
-            # Add auxiliary losses, if registered
-            loss_value = self.add_auxiliary_losses(loss_value)
-            del wer, _
-
-
-        if self.ctc_loss_weight > 0:
-            log_probs = self.ctc_decoder(encoder_output=encoded, language_ids=language_ids)
-
-            ctc_loss = self.ctc_loss(
-                log_probs=log_probs, targets=transcript, input_lengths=encoded_len, target_lengths=transcript_len
-            )
-            monitor['train_rnnt_loss'] = loss_value.item()
-            monitor['train_ctc_loss'] = ctc_loss.item()
-            
-            loss_value = (1 - self.ctc_loss_weight) * loss_value + self.ctc_loss_weight * ctc_loss
-            if compute_wer:
-                if "multisoftmax" in self.cfg.decoder:
-                    self.ctc_wer.update(
-                        predictions=log_probs,
-                        targets=transcript,
-                        targets_lengths=transcript_len,
-                        predictions_lengths=encoded_len,
-                        lang_ids=language_ids,
-                    )
-                else:
-                    self.ctc_wer.update(
-                        predictions=log_probs,
-                        targets=transcript,
-                        targets_lengths=transcript_len,
-                        predictions_lengths=encoded_len,
-                    )
-                ctc_wer, _, _ = self.ctc_wer.compute()
-                self.ctc_wer.reset()
-                monitor['training_batch_wer_ctc'] = ctc_wer
-                # tensorboard_logs.update({'training_batch_wer_ctc': ctc_wer})
-                del ctc_wer, ctc_loss, _
-                if not return_probs:
-                    del log_probs
-                else:
-                    log_probs = log_probs
-
-        # note that we want to apply interctc independent of whether main ctc
-        # loss is used or not (to allow rnnt + interctc training).
-        # assuming ``ctc_loss_weight=0.3`` and interctc is applied to a single
-        # layer with weight of ``0.1``, the total loss will be
-        # ``loss = 0.9 * (0.3 * ctc_loss + 0.7 * rnnt_loss) + 0.1 * interctc_loss``
-        loss_value, additional_logs = self.add_interctc_losses(
-            loss_value, transcript, transcript_len, compute_wer=compute_wer
+        log_probs = self.ctc_decoder(encoder_output=encoded, language_ids=language_ids)
+        del encoded
+        ctc_loss = self.ctc_loss(
+            log_probs=log_probs, targets=transcript, input_lengths=encoded_len, target_lengths=transcript_len
         )
-        # tensorboard_logs.update(additional_logs)
-        # tensorboard_logs['train_loss'] = loss_value
-        # Reset access registry
-        if AccessMixin.is_access_enabled(self.model_guid):
-            AccessMixin.reset_registry(self)
-
-        # Log items
-        # self.log_dict(tensorboard_logs)
-
-        # Preserve batch acoustic model T and language model U parameters if normalizing
-        if self._optim_normalize_joint_txu:
-            self._optim_normalize_txu = [encoded_len.max(), transcript_len.max()]
+        monitor['train_rnnt_loss'] = loss_value.item()
+        monitor['train_ctc_loss'] = ctc_loss.item()
+        
+        loss_value = (1 - self.ctc_loss_weight) * loss_value + self.ctc_loss_weight * ctc_loss
+        self.ctc_wer.update(
+                    predictions=log_probs,
+                    targets=transcript,
+                    targets_lengths=transcript_len,
+                    predictions_lengths=encoded_len,
+                    lang_ids=language_ids,
+                )
+        ctc_wer, _, _ = self.ctc_wer.compute()
+        self.ctc_wer.reset()
+        monitor['training_batch_wer_ctc'] = ctc_wer.item()
+        # tensorboard_logs.update({'training_batch_wer_ctc': ctc_wer})
+        del ctc_wer, ctc_loss, _
+        if not return_probs:
+            del log_probs
+        gc.collect(); gc.collect()
+        torch.cuda.empty_cache()
 
         monitor['train_loss'] = loss_value.item()
         ### delete rest and reset cuda cache
-        del encoded, encoded_len, transcript, transcript_len, target_length, states, decoder
-        del batch
+        del encoded_len, transcript, transcript_len, language_ids
         gc.collect(); gc.collect()
         torch.cuda.empty_cache()
         

@@ -443,6 +443,77 @@ def get_tensors(gpu_only=True):
         except Exception as e:
             pass
 
+
+############ CUDA MEMORY LEAKAGE, TEMP BAD FIX
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.nn.parallel import DistributedDataParallel as DDP
+import gc
+import NeMo.nemo.collections.asr as nemo_asr
+
+def reset_ddp_model(
+    old_ddp_model: DDP,
+    lang,
+    optimizer_class,
+    optimizer_kwargs={},
+    device=None
+):
+    """
+    Cleanly resets DDP-wrapped model and optimizer, freeing GPU memory, while preserving state dicts.
+
+    Args:
+        old_ddp_model: The current DDP-wrapped model instance.
+        model_class: Class (not instance) of your base model.
+        optimizer_class: Optimizer class (e.g., torch.optim.Adam).
+        model_kwargs: kwargs to pass to the model_class constructor.
+        optimizer_kwargs: kwargs to pass to the optimizer_class constructor.
+        device: CUDA device id or torch.device (defaults to current CUDA device).
+
+    Returns:
+        new_ddp_model, new_optimizer
+    """
+
+    # Default to current device
+    if device is None:
+        device = torch.cuda.current_device()
+
+    # Step 1: Save state dicts
+    model_state_dict = old_ddp_model.module.state_dict()
+    optimizer_state_dict = (
+        old_ddp_model.optimizer.state_dict()
+        if hasattr(old_ddp_model, "optimizer")
+        else None
+    )
+
+    # Step 2: Delete old optimizer if attached
+    if hasattr(old_ddp_model, "optimizer"):
+        del old_ddp_model.optimizer
+
+    # Step 3: Delete old model and clear memory
+    del old_ddp_model
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    # Step 4: Reinitialize model and optimizer
+    new_model =  nemo_asr.models.ASRModel.from_pretrained(f"ai4bharat/indicconformer_stt_{lang}_hybrid_rnnt_large").to(device)
+    new_optimizer = optimizer_class(new_model.parameters(), **optimizer_kwargs)
+
+    # Step 5: Load state dicts
+    new_model.load_state_dict(model_state_dict)
+    if optimizer_state_dict:
+        new_optimizer.load_state_dict(optimizer_state_dict)
+
+    # Step 6: Wrap in DDP again
+    new_ddp_model = DDP(new_model, device_ids=[device])
+    new_ddp_model.optimizer = new_optimizer  # Optional: for convenience
+
+    return new_ddp_model, new_optimizer
+
+
+
+
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     wandb.init(project="transfer_learning_curves", entity="frozenwolf")

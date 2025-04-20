@@ -135,7 +135,7 @@ def train():
     model.train()
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
-
+    dataloader = None
 
     for lang_idx, (lang, short_form_lang) in enumerate(zip(LANGUAGES, short_form)):
 
@@ -165,6 +165,10 @@ def train():
         transcribe_cfg._internal.temp_dir = tempfile.mkdtemp()
 
         print("Creating dataloader")
+        del dataloader
+        gc.collect()
+        torch.cuda.empty_cache()
+        
         dataloader = model.module._transcribe_input_processing(audio_files, transcribe_cfg, transcripts, durations=durations,
                                                         shuffle=False if config.distributed else True,
                                                         language_id = short_form_lang,

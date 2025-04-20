@@ -1,1 +1,0 @@
-torchrun   --nnodes=1   --nproc_per_node=1   --rdzv_id=$RANDOM   --rdzv_backend=c10d   --rdzv_endpoint=$head_node_ip:29500   /scratch/gokuladethya.cse.nitt/Indic-CL-ASR/cl_baseline_mas.py   --notes "CL-baseline-mas-CTX-1-MAS-1" --cl_config.mas_ctx 1 

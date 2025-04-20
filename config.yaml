@@ -1,8 +1,8 @@
-notes: "CL naive baseline"
+notes: "debug"
 entity: "frozenwolf"
 device: cuda
-batch_size: 32
-# batch_size: 16
+batch_size: 24
+# batch_size: 24
 num_workers: 0
 learning_rate: 0.0001
 epochs: 2
@@ -32,7 +32,7 @@ cl_config:
 
   ## lwf
   knowledge_distillation: 0.1
-  knowledge_distillation_ctx: 0.3  ### 0.3 default, 1 means, 0 means no ctx
+  knowledge_distillation_ctx: 1  ### 0.3 default, 0 means no ctx
 
   ## mas
   mas_ctx: 0.3
