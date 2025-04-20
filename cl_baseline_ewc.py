@@ -133,10 +133,6 @@ def train():
 
         run_id = wandb.run.id
         pickle.dump(run_id, open(os.path.join(config.output_dir, "run_id.pkl"), "wb"))
-        if not os.path.exists(config.output_dir):
-            os.mkdir(config.output_dir)
-            
-        os.mkdir(os.path.join(config.output_dir, run_id))
     else:
         while True:
             try:
@@ -149,7 +145,9 @@ def train():
     
 
     torch.distributed.barrier()
-
+    if is_main_process():
+        os.remove(os.path.join(config.output_dir, "run_id.pkl"))
+    
     model =  nemo_asr.models.ASRModel.from_pretrained(f"ai4bharat/indicconformer_stt_{short_form[0]}_hybrid_rnnt_large").to(device)
     print("Trainable parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
     freeze_layer(model, config.model.freeze_encoder_till)
