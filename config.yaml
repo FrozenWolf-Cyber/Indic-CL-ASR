@@ -36,7 +36,7 @@ cl_config:
 
   ## mas
   mas_ctx: 0.3
-  mas_lamba: 1
+  mas_lambda: 1
   
 cl_kmean:
   reset_lora: true

@@ -68,11 +68,11 @@ test_performance = {i:[] for i in LANGUAGES}
 
 
 def penalty(model, main_importance, prev_params):
-     loss = 0
-     for n, p in model.named_parameters():
-         if p.requires_grad:
-             loss += torch.sum(main_importance[n] * (p - prev_params[n]) ** 2)
-     return loss
+    loss = 0
+    for n, p in model.named_parameters():
+       if p.requires_grad:
+           loss += torch.sum(main_importance[n] * (p - prev_params[n]) ** 2)
+    return loss
 
 
 @record
@@ -204,15 +204,15 @@ def train():
                     
                 
                 if epoch == config.epochs:
-                    model.joint.store_sub_enc = False
-                    model.joint.store_sub_logits = True
-                    model.ctc_decoder.return_logits_ = True
-                    model.joint.detach_sub_enc = False
+                    model.module.joint.store_sub_enc = False
+                    model.module.joint.store_sub_logits = True
+                    model.module.ctc_decoder.return_logits_ = True
+                    model.module.joint.detach_sub_enc = False
                 else:
-                    model.joint.store_sub_enc = False
-                    model.joint.store_sub_logits = False
-                    model.ctc_decoder.return_logits_ = False
-                    model.joint.detach_sub_enc = False
+                    model.module.joint.store_sub_enc = False
+                    model.module.joint.store_sub_logits = False
+                    model.module.ctc_decoder.return_logits_ = False
+                    model.module.joint.detach_sub_enc = False
                 
                 for batch in tqdm(dataloader, desc=f"[Rank {rank}] Lang: {lang} Epoch: {epoch + 1}"):
                     # print("before, batch",torch.cuda.memory_summary())
@@ -221,9 +221,11 @@ def train():
                     # print("after batch",torch.cuda.memory_summary())
                     with autocast(device_type="cuda", enabled=config.mixed_precision):
                         loss, monitor = model.module.training_step(batch, [short_form_lang]*len(batch[0]))
-                        mass_loss = penalty(model.module, main_importance, checkpoint)
-                        monitor['mass_loss'] = mass_loss.item()
-                        loss = loss + mass_loss*config.cl_config.mas_lambda
+                        
+                        if checkpoint is not None:
+                            mass_loss = penalty(model.module, main_importance, checkpoint)
+                            monitor['mass_loss'] = mass_loss.item()
+                            loss = loss + mass_loss*config.cl_config.mas_lambda
                     # print("loss calclated",torch.cuda.memory_summary())
                     
                     if (epoch < config.epochs):
@@ -247,12 +249,12 @@ def train():
                                 logger.log({f"train/{key}_{lang}": value, "epoch": epoch, "lang": lang_idx})
                                 
                     else:
-                        decoder_logits = (model.ctc_decoder.decoder_logits.flatten(end_dim=-2) ** 2).sum(dim=-1).mean()
+                        decoder_logits = (model.module.ctc_decoder.decoder_logits.flatten(end_dim=-2) ** 2).sum(dim=-1).mean()
                         
                         rnn_logits = 0
-                        for i in model.joint.store_list:
+                        for i in model.module.joint.store_list:
                             rnn_logits += (i.flatten(end_dim=-2) ** 2).sum(dim=-1).mean()
-                        rnn_logits /= len(model.joint.store_list)
+                        rnn_logits /= len(model.module.joint.store_list)
                         loss = (rnn_logits*(1-config.cl_config.mas_ctx) + decoder_logits*config.cl_config.mas_ctx)
                         loss.backward()
                         
