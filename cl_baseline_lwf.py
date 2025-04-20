@@ -118,6 +118,23 @@ def train():
     
         print("Languages:", LANGUAGES)
 
+        pickle.dump(run_id, open(os.path.join(config.output_dir, "run_id.pkl"), "wb"))
+        if not os.path.exists(config.output_dir):
+            os.mkdir(config.output_dir)
+
+        os.mkdir(os.path.join(config.output_dir, run_id))
+    else:
+        while True:
+            try:
+                run_id = pickle.load(open(os.path.join(config.output_dir, "run_id.pkl"), "rb"))
+                break
+            except:
+                import time
+                print("Waiting for main process to create run_id.pkl")
+                time.sleep(2)
+    
+
+
     torch.distributed.barrier()
 
     model =  nemo_asr.models.ASRModel.from_pretrained(f"ai4bharat/indicconformer_stt_{short_form[0]}_hybrid_rnnt_large").to(device)
@@ -188,7 +205,7 @@ def train():
                     # print("after batch",torch.cuda.memory_summary())
                     with autocast(device_type="cuda", enabled=config.mixed_precision):
                         with torch.no_grad():
-                            if lang_idx > -1:
+                            if lang_idx > 0:
                                 if is_main_process():
                                     save_model(model.module, curr_save_path)
                                     
@@ -211,7 +228,7 @@ def train():
                         loss, monitor, prob = model.module.training_step(batch, [short_form_lang]*len(batch[0]), return_probs=True) 
                         pred_store_list = model.module.joint.store_list
 
-                        if lang_idx > -1:
+                        if lang_idx > 0:
                             ctc_kd_loss = torch.nn.functional.kl_div(
                                 prob,  # input: log probabilities from student
                                 prob_.exp(),  # target: probabilities from teacher
@@ -256,7 +273,7 @@ def train():
                         for key, value in monitor.items():
                             logger.log({f"train/{key}_{lang}": value, "epoch": epoch, "lang": lang_idx})
                             
-                    if lang_idx > -1:
+                    if lang_idx > 0:
                         del ctc_kd_loss, rnnt_kd_loss_, prob_, store_list, pred_store_list, i, j
                     del loss, batch, monitor
                     gc.collect()
@@ -303,6 +320,8 @@ def train():
             
             if not config.save_weights:
                 save_model(model.module, os.path.join(config.output_dir, run_id, f"model_prev.pth"))
+                
+        torch.distributed.barrier()
          
                 
 

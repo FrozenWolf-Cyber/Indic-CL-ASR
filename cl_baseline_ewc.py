@@ -131,6 +131,23 @@ def train():
     
         print("Languages:", LANGUAGES)
 
+        run_id = wandb.run.id
+        pickle.dump(run_id, open(os.path.join(config.output_dir, "run_id.pkl"), "wb"))
+        if not os.path.exists(config.output_dir):
+            os.mkdir(config.output_dir)
+            
+        os.mkdir(os.path.join(config.output_dir, run_id))
+    else:
+        while True:
+            try:
+                run_id = pickle.load(open(os.path.join(config.output_dir, "run_id.pkl"), "rb"))
+                break
+            except:
+                import time
+                print("Waiting for main process to create run_id.pkl")
+                time.sleep(2)
+    
+
     torch.distributed.barrier()
 
     model =  nemo_asr.models.ASRModel.from_pretrained(f"ai4bharat/indicconformer_stt_{short_form[0]}_hybrid_rnnt_large").to(device)
