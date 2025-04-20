@@ -1476,10 +1476,11 @@ class RNNTJoint(rnnt_abstract.AbstractRNNTJoint, Exportable, AdapterModuleMixin)
                     if self.store_sub_enc:
                         if self.detach_sub_enc:
                             if sub_enc.requires_grad:
-                                sub_enc = sub_enc.detach()
-                            sub_enc_list.append(sub_enc)
+                                sub_enc_list.append(sub_joint.detach())
+                            else:
+                                sub_enc_list.append(sub_joint)
                         else:
-                            sub_enc_list.append(sub_enc)
+                            sub_enc_list.append(sub_joint)
                     loss_batch = self.loss(
                         log_probs=sub_joint,
                         targets=sub_transcripts,

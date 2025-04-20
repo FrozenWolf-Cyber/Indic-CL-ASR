@@ -453,6 +453,7 @@ class ConvASRDecoder(NeuralModule, Exportable, adapter_mixins.AdapterModuleMixin
         self.temperature = 1.0
         self.multisoftmax = multisoftmax
         self.language_masks = language_masks
+        self.return_logits_ = False
     
     @typecheck()
     def forward(self, encoder_output, language_ids=None): #CTEMO
@@ -484,6 +485,8 @@ class ConvASRDecoder(NeuralModule, Exportable, adapter_mixins.AdapterModuleMixin
         # print(mask[0][0])
         # softmax_output = self.masked_softmax(decoder_output, mask)
         # return softmax_output
+        if self.return_logits_:
+            return decoder_output
         return torch.nn.functional.log_softmax(decoder_output, dim=-1)
 
     def input_example(self, max_batch=1, max_dim=256):
