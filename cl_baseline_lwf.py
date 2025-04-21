@@ -31,6 +31,8 @@ def seed_everything(seed=42):
 
 
 def setup_distributed():
+    os.environ["NCCL_DEBUG"] = "INFO"
+    os.environ["NCCL_DEBUG_SUBSYS"] = "ALL"
     dist.init_process_group(backend="nccl", timeout=timedelta(hours=5))
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
     node_rank = int(os.environ.get("NODE_RANK", 0))
@@ -211,6 +213,10 @@ def train():
                         with torch.no_grad():
                             if lang_idx > 0:
                                 if is_main_process():
+                                    try:
+                                        os.remove(os.path.join(config.output_dir, run_id, f"commit_{LANGUAGES[lang_idx-1]}.txt"))
+                                    except:
+                                        print("File not found", os.path.join(config.output_dir, run_id, f"commit_{LANGUAGES[lang_idx-1]}.txt"))
                                     save_model(model.module, curr_save_path)
                                     
                                 torch.distributed.barrier()
@@ -325,9 +331,24 @@ def train():
             logger.reset()
             
             if not config.save_weights:
+                print("Saving previous weights")
                 save_model(model.module, os.path.join(config.output_dir, run_id, f"model_prev.pth"))
+                with open(os.path.join(config.output_dir, run_id, f"commit_{lang}.txt"), "w") as f:
+                    f.write("0")
                 
+        print("Waiting for all processes to finish", device)
         torch.distributed.barrier()
+        print("I am device and i waited", device)
+        while True:
+            try:
+                if os.path.join(config.output_dir, run_id, f"commit_{lang}.txt") in os.listdir(os.path.join(config.output_dir, run_id)):
+                    break
+            except:
+                continue
+            
+        print("Collectively going to next language", device)
+        torch.distributed.barrier()
+        print("After barrier", device)
          
                 
 
