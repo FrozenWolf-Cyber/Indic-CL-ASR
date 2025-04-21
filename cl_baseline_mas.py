@@ -286,9 +286,10 @@ def train():
                         
                     main_importance = importance         
                     checkpoint = get_params_clone(model.module)
-                    
-                if epoch < config.epochs:
-                    logger.log_epoch_average()
+                  
+                if is_main_process():
+                    if epoch < config.epochs:
+                        logger.log_epoch_average()
    
             if is_main_process() and epoch == config.epochs-1:
                 if config.save_weights:

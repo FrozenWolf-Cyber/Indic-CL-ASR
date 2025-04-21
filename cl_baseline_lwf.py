@@ -284,7 +284,9 @@ def train():
                     torch.cuda.empty_cache()
                     # print("After deleting")
                     # check_garbage()
-                logger.log_epoch_average()
+                    
+                if is_main_process():
+                    logger.log_epoch_average()
                 
         model.module.joint.store_sub_enc = False
         model.module.joint.detach_sub_enc = True
