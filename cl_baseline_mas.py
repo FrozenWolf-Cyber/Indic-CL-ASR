@@ -128,21 +128,21 @@ def train():
         print("Languages:", LANGUAGES)
 
         run_id = wandb.run.id
-        pickle.dump(run_id, open(os.path.join(config.output_dir, "run_id.pkl"), "wb"))
-    else:
-        while True:
-            try:
-                run_id = pickle.load(open(os.path.join(config.output_dir, "run_id.pkl"), "rb"))
-                break
-            except:
-                import time
-                print("Waiting for main process to create run_id.pkl")
-                time.sleep(2)
+    #     pickle.dump(run_id, open(os.path.join(config.output_dir, "run_id.pkl"), "wb"))
+    # else:
+    #     while True:
+    #         try:
+    #             run_id = pickle.load(open(os.path.join(config.output_dir, "run_id.pkl"), "rb"))
+    #             break
+    #         except:
+    #             import time
+    #             print("Waiting for main process to create run_id.pkl")
+    #             time.sleep(2)
     
 
-    torch.distributed.barrier()
-    if is_main_process():
-        os.remove(os.path.join(config.output_dir, "run_id.pkl"))
+    # torch.distributed.barrier()
+    # if is_main_process():
+    #     os.remove(os.path.join(config.output_dir, "run_id.pkl"))
     
     model =  nemo_asr.models.ASRModel.from_pretrained(f"ai4bharat/indicconformer_stt_{short_form[0]}_hybrid_rnnt_large").to(device)
     print("Trainable parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
