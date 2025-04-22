@@ -19,7 +19,7 @@ model:
 dataset:
   path: "/scratch/gokuladethya.cse.nitt/indiaai_subset/"
   annotation_path: "/scratch/gokuladethya.cse.nitt/dataset.pkl"
-  train_size: 4000
+  train_size: 3000
 
   # path: "/home/frozenwolf/Desktop/indiaai_subset/"
   # annotation_path: "/home/frozenwolf/Desktop/dataset.pkl"
