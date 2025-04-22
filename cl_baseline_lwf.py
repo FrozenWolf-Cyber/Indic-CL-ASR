@@ -169,7 +169,7 @@ def train():
         if is_main_process():
             print(f"\n============= Training on language: {lang} =============")
 
-        audio_files = train_set[lang]['audio']
+        audio_files = train_set[lang]['audio'][:config.dataset.train_size]
         transcripts_dict = train_set[lang]['transcript']
         transcripts = [transcripts_dict[os.path.basename(path)] for path in audio_files]
         durations = train_set[lang]['duration']
@@ -213,10 +213,10 @@ def train():
                         with torch.no_grad():
                             if lang_idx > 0:
                                 if is_main_process():
-                                    try:
-                                        os.remove(os.path.join(config.output_dir, run_id, f"commit_{LANGUAGES[lang_idx-1]}.txt"))
-                                    except:
-                                        print("File not found", os.path.join(config.output_dir, run_id, f"commit_{LANGUAGES[lang_idx-1]}.txt"))
+                                    # try:
+                                    #     os.remove(os.path.join(config.output_dir, run_id, f"commit_{LANGUAGES[lang_idx-1]}.txt"))
+                                    # except:
+                                    #     print("File not found", os.path.join(config.output_dir, run_id, f"commit_{LANGUAGES[lang_idx-1]}.txt"))
                                     save_model(model.module, curr_save_path)
                                     
                                 torch.distributed.barrier()
@@ -333,22 +333,22 @@ def train():
             if not config.save_weights:
                 print("Saving previous weights")
                 save_model(model.module, os.path.join(config.output_dir, run_id, f"model_prev.pth"))
-                with open(os.path.join(config.output_dir, run_id, f"commit_{lang}.txt"), "w") as f:
-                    f.write("0")
+        #         with open(os.path.join(config.output_dir, run_id, f"commit_{lang}.txt"), "w") as f:
+        #             f.write("0")
                 
-        print("Waiting for all processes to finish", device)
-        torch.distributed.barrier()
-        print("I am device and i waited", device)
-        while True:
-            try:
-                if os.path.join(config.output_dir, run_id, f"commit_{lang}.txt") in os.listdir(os.path.join(config.output_dir, run_id)):
-                    break
-            except:
-                continue
+        # print("Waiting for all processes to finish", device)
+        # torch.distributed.barrier()
+        # print("I am device and i waited", device)
+        # while True:
+        #     try:
+        #         if os.path.join(config.output_dir, run_id, f"commit_{lang}.txt") in os.listdir(os.path.join(config.output_dir, run_id)):
+        #             break
+        #     except:
+        #         continue
             
-        print("Collectively going to next language", device)
-        torch.distributed.barrier()
-        print("After barrier", device)
+        # print("Collectively going to next language", device)
+        # torch.distributed.barrier()
+        # print("After barrier", device)
          
                 
 

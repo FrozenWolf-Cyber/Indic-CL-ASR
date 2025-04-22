@@ -175,7 +175,7 @@ def train():
         if is_main_process():
             print(f"\n============= Training on language: {lang} =============")
 
-        audio_files = train_set[lang]['audio']
+        audio_files = train_set[lang]['audio'][:config.dataset.train_size]
         
 
         transcripts_dict = train_set[lang]['transcript']

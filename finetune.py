@@ -147,7 +147,7 @@ def train():
     
     
     
-    transcripts_dict = train_set[lang]['transcript']
+    transcripts_dict = train_set[lang]['transcript'][:config.dataset.train_size]
     transcripts = [transcripts_dict[os.path.basename(path)] for path in audio_files]
     durations = train_set[lang]['duration']
     # prepare dataloader
@@ -215,9 +215,10 @@ def train():
             torch.cuda.empty_cache()
             # print("After deleting")
             # check_garbage()
-        logger.log_epoch_average()
+        
 
         if is_main_process():
+            logger.log_epoch_average()
             if config.save_weights:
                 print("Saving weights")
                 save_model(model.module, os.path.join(config.output_dir, run_id, f"model_{lang}.pth"))
