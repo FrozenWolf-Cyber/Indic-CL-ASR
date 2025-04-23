@@ -138,6 +138,8 @@ def train():
 
     lang = "tamil"
     short_form_lang = "ta"
+    temp_lang = ['hindi','bengali','marathi','telugu','tamil','urdu','gujarati','kannada','odia','malayalam','punjabi','sanskrit']
+    lang_idx = temp_lang.index(lang)
 
     torch.distributed.barrier()
     if is_main_process():
