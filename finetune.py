@@ -142,12 +142,12 @@ def train():
     torch.distributed.barrier()
     if is_main_process():
         print(f"\n============= Training on language: {lang} =============")
-    audio_files = train_set[lang]['audio']
+    audio_files = train_set[lang]['audio'][:config.dataset.train_size]
     
     
     
     
-    transcripts_dict = train_set[lang]['transcript'][:config.dataset.train_size]
+    transcripts_dict = train_set[lang]['transcript']
     transcripts = [transcripts_dict[os.path.basename(path)] for path in audio_files]
     durations = train_set[lang]['duration']
     # prepare dataloader
