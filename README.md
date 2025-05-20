@@ -209,8 +209,21 @@ Check the runs/ directory for detailed logs (e.g., TensorBoard).
 Check the wandb/ directory for W&B sync data or view results on the W&B dashboard.
 
 Use results.py to process raw output files into aggregated metrics.
-
 Use results.ipynb for custom analysis, plotting WER, BWT, and comparing CL strategies against naive fine-tuning. Output artifacts might be saved in results/.
 
+![Screenshot from 2025-05-20 12-17-23](https://github.com/user-attachments/assets/d9d5e172-94df-453b-a373-947b5e446288)
+![Screenshot from 2025-05-20 12-17-30](https://github.com/user-attachments/assets/3e12df17-8480-401a-931f-895c2ecbea35)
+![Screenshot from 2025-05-20 12-17-42](https://github.com/user-attachments/assets/9b04c671-0793-48ee-b09e-d9e63e08987b)
+![Screenshot from 2025-05-20 12-17-59](https://github.com/user-attachments/assets/3382c9e8-362a-4ebb-b4c3-855408e7b34e)
+![Screenshot from 2025-05-20 12-18-09](https://github.com/user-attachments/assets/4a21f5bb-0871-433c-b93d-cccdbea52241)
+![Screenshot from 2025-05-20 12-18-22](https://github.com/user-attachments/assets/71e8e19d-4b6c-4d97-b7e0-6f56e48e69b3)
+![Screenshot from 2025-05-20 12-18-36](https://github.com/user-attachments/assets/6c515414-cb06-45b4-8b3d-bf39f3ae0e69)
+![Screenshot from 2025-05-20 12-18-49](https://github.com/user-attachments/assets/ebde61c6-56aa-4be9-974d-1efe25153c9d)
+![Screenshot from 2025-05-20 12-19-00](https://github.com/user-attachments/assets/98380e93-3c68-46e9-80c4-7c542938a1fe)
+![Screenshot from 2025-05-20 12-19-09](https://github.com/user-attachments/assets/590d9122-2f2c-4f81-86c2-8f53ba9b9082)
+![Screenshot from 2025-05-20 12-19-17](https://github.com/user-attachments/assets/1c674c13-9ab9-49aa-9e30-c800aa61f2e4)
+![Screenshot from 2025-05-20 12-19-25](https://github.com/user-attachments/assets/2c494b82-f916-4260-94f3-e595ceb9b99b)
+![Screenshot from 2025-05-20 12-19-51](https://github.com/user-attachments/assets/43786d69-36f3-4052-ace1-98492339e11e)
+![Screenshot from 2025-05-20 12-16-48](https://github.com/user-attachments/assets/ec89b2c7-4a91-4e61-98ba-dcaa48fe511d)
 
 
