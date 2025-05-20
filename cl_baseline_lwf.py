@@ -261,9 +261,7 @@ def train():
                             monitor['ctc_kd_loss'] = ctc_kd_loss.item()
                             monitor['kd_loss'] = (1 - kd_ctx) * monitor['rnnt_kd_loss'] + kd_ctx * monitor['ctc_kd_loss']
                             
-                            loss = loss * (1 - config.cl_config.knowledge_distillation)\
-                            + config.cl_config.knowledge_distillation * \
-                                ((1 - kd_ctx) * rnnt_kd_loss_ + kd_ctx * ctc_kd_loss)
+                            loss = loss * (1 - config.cl_config.knowledge_distillation)+ config.cl_config.knowledge_distillation * ((1 - kd_ctx) * rnnt_kd_loss_ + kd_ctx * ctc_kd_loss)
                             
 
                         
