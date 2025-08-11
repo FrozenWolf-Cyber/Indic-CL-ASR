@@ -1,0 +1,44 @@
+notes: "debug"
+entity: "frozenwolf"
+device: cuda
+batch_size: 16
+# batch_size: 24
+num_workers: 0
+learning_rate: 0.0001
+epochs: 1
+distributed: true
+mixed_precision: false
+save_weights: false #===============================
+
+# output_dir: "output"
+output_dir: "/scratch/gokuladethya.cse.nitt/indiaai/output"
+
+model:
+  freeze_encoder_till: 12
+
+dataset:
+  path: "/scratch/gokuladethya.cse.nitt/indiaai_subset/"
+  annotation_path: "/scratch/gokuladethya.cse.nitt/dataset.pkl"
+  train_size: 3000
+
+  # path: "/home/frozenwolf/Desktop/indiaai_subset/"
+  # annotation_path: "/home/frozenwolf/Desktop/dataset.pkl"
+
+cl_config:
+
+  evaluate_every_n_epochs: 10
+  ## ewc
+  e_lambda: 10
+  e_gamma: 1
+
+  ## lwf
+  knowledge_distillation: 0.1
+  knowledge_distillation_ctx: 1  ### 0.3 default, 0 means no ctx
+
+  ## mas
+  mas_ctx: 0.3
+  mas_lambda: 1
+  
+cl_kmean:
+  reset_lora: true
+  knowledge_distillation: false
